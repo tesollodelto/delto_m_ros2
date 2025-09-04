@@ -44,14 +44,13 @@
 
 // #include "dg3f_TCP.hpp"
 #include "delto_developer_TCP.hpp"
-#include "delto_gripper_helper.hpp"
-
+#include "delto_gripper_helper.hpp" 
 namespace delto_interface
 {
   constexpr char HW_IF_TEMPERATURE[] = "temperature";
 constexpr char HW_IF_CURRENT[] = "current";
 }
-namespace dg3f_m_driver
+namespace dg3f_b_driver
 {
   
 class SystemInterface : public hardware_interface::SystemInterface
@@ -82,6 +81,7 @@ public:
   // CallbackReturn read() override;
 
 private:
+  void init();
   void onDisconnectCallback();  // Disconnect callback function
   std::unique_ptr<DeltoTCP::Communication> delto_client_;
 
@@ -92,6 +92,7 @@ private:
   std::vector<double> current_;
 
   std::vector<double> effort_commands_;
+  std::thread m_init_thread_;
 
   // Current control variables
   std::vector<int> current_limit_flag_;
@@ -107,4 +108,4 @@ private:
   bool fingertip_sensor_;
   bool io_;
 };
-}  // namespace dg3f_driver
+}  // namespace dg3f_b_driver

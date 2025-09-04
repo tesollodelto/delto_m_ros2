@@ -12,7 +12,9 @@
 <robot name="dg3f_m">
   <link name="l_dg_mount">
     <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0" />
       <mass value="0.035" />
+      <inertia ixx="0.00001" ixy="0" ixz="0" iyy="0.00001" iyz="0" izz="0.00001" />
     </inertial>
     <visual>
       <geometry>

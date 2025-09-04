@@ -59,7 +59,7 @@ class Communication {
   DeltoReceivedData GetData();
   void SendDuty(std::vector<int>& duty);
   bool ReadFullPacket(boost::asio::ip::tcp::socket& socket,
-                      std::array<uint8_t, 99>& buffer);
+                      std::vector<uint8_t>& buffer);
 
  private:
   std::string ip_;

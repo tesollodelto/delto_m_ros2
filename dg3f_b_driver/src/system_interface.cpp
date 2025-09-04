@@ -26,7 +26,7 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 // POSSIBILITY OF SUCH DAMAGE.
 
-#include "dg3f_driver/system_interface.hpp"
+#include "dg3f_b_driver/system_interface.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -40,12 +40,12 @@
 #include "hardware_interface/types/hardware_interface_type_values.hpp"
 #include "rclcpp/rclcpp.hpp"
 
-namespace dg3f_m_driver
+namespace dg3f_b_driver
 {
 
 hardware_interface::SystemInterface::CallbackReturn SystemInterface::on_init(
   const hardware_interface::HardwareInfo & info)
-{
+{  
   if (hardware_interface::SystemInterface::CallbackReturn::SUCCESS !=
     hardware_interface::SystemInterface::on_init(info))
   {
@@ -97,7 +97,7 @@ hardware_interface::SystemInterface::CallbackReturn SystemInterface::on_init(
   delto_port_ = 502;             // Default port
   fingertip_sensor_ = false;     // Default value
   io_ = false;                   // Default value
-  model_ = 0x3F02;               // Default model
+  model_ = 0x3F01;               // Default model for dg3f_b
 
   // Safely get parameters with defaults
   if (info.hardware_parameters.find("delto_ip") !=
@@ -154,18 +154,9 @@ hardware_interface::SystemInterface::CallbackReturn SystemInterface::on_init(
     connection_status_ = 0.0;
     return CallbackReturn::FAILURE;
   }
+    // m_init_thread_ = std::thread(&SystemInterface::init, this);
+  // m_init_thread_.detach();
 
-  return CallbackReturn::SUCCESS;
-}
-
-hardware_interface::SystemInterface::CallbackReturn
-SystemInterface::on_deactivate([[maybe_unused]] const rclcpp_lifecycle::State & previous_state)
-{
-  if (delto_client_) {
-    delto_client_->Disconnect();
-  }
-
-  RCLCPP_INFO(rclcpp::get_logger("SystemInterface"), "Deactivated driver");
   return CallbackReturn::SUCCESS;
 }
 
@@ -210,8 +201,11 @@ SystemInterface::export_command_interfaces()
       hardware_interface::CommandInterface(
         info_.joints[i].name, hardware_interface::HW_IF_EFFORT,
         &effort_commands_[i]));
+    
+    std::cout << "export_command_interfaces: " << info_.joints[i].name << "/effort" << std::endl;
   }
 
+  std::cout << "Total command interfaces exported: " << command_interfaces.size() << std::endl;
   return command_interfaces;
 }
 
@@ -225,8 +219,36 @@ SystemInterface::return_type SystemInterface::prepare_command_mode_switch(
 SystemInterface::CallbackReturn SystemInterface::on_activate(
   [[maybe_unused]] const rclcpp_lifecycle::State & previous_state)
 {
-  RCLCPP_INFO(rclcpp::get_logger("SystemInterface"), "Started driver");
+  RCLCPP_INFO(rclcpp::get_logger("SystemInterface"), "Starting DELTO dg3f_b_driver ...");
 
+  // Connection is already established in on_init(), just check status
+  if (is_connected_.load()) {
+    RCLCPP_INFO(rclcpp::get_logger("SystemInterface"), "DELTO dg3f_b_driver started successfully!");
+    return CallbackReturn::SUCCESS;
+  } else {
+    RCLCPP_ERROR(rclcpp::get_logger("SystemInterface"), "Device not connected, cannot activate");
+    return CallbackReturn::ERROR;
+  }
+}
+
+hardware_interface::SystemInterface::CallbackReturn
+SystemInterface::on_deactivate(
+  [[maybe_unused]] const rclcpp_lifecycle::State & previous_state)
+{
+  RCLCPP_INFO(rclcpp::get_logger("SystemInterface"), "Deactivating DELTO dg3f_b_driver ...");
+
+  try {
+    if (delto_client_) {
+      delto_client_->Disconnect();
+    }
+    is_connected_.store(false);
+    connection_status_ = 0.0;
+  } catch (const std::exception& e) {
+    RCLCPP_ERROR(rclcpp::get_logger("SystemInterface"), "Exception during deactivation: %s", e.what());
+  }
+
+  RCLCPP_INFO(rclcpp::get_logger("SystemInterface"), "DELTO dg3f_b_driver deactivated");
+  
   return CallbackReturn::SUCCESS;
 }
 
@@ -234,21 +256,25 @@ hardware_interface::SystemInterface::CallbackReturn
 SystemInterface::on_shutdown(
   [[maybe_unused]] const rclcpp_lifecycle::State & previous_state)
 {
-  RCLCPP_INFO(rclcpp::get_logger("SystemInterface"), "Stopped driver");
+  RCLCPP_INFO(rclcpp::get_logger("SystemInterface"), "Shutting down DELTO dg3f_b_driver ...");
+  
+  try {
+    if (delto_client_) {
+      delto_client_->Disconnect();
+    }
+    is_connected_.store(false);
+    connection_status_ = 0.0;
+  } catch (const std::exception& e) {
+    RCLCPP_ERROR(rclcpp::get_logger("SystemInterface"), "Exception during shutdown: %s", e.what());
+  }
+  
+  RCLCPP_INFO(rclcpp::get_logger("SystemInterface"), "DELTO dg3f_b_driver stopped");
   return CallbackReturn::SUCCESS;
 }
 
-// init() function is no longer needed as connection is done in on_init()
-// void SystemInterface::init() { ... }
-
-void SystemInterface::onDisconnectCallback() {
-  RCLCPP_WARN(rclcpp::get_logger("SystemInterface"), "Device disconnected!");
-  is_connected_.store(false);
-  connection_status_ = 0.0;
-}
 
 SystemInterface::return_type SystemInterface::read(
-  [[maybe_unused]] const rclcpp::Time & time, [[maybe_unused]] const rclcpp::Duration & period)
+  [[maybe_unused]] const rclcpp::Time & time, const rclcpp::Duration & period)
 {
   try {
     if (!delto_client_) {
@@ -258,53 +284,40 @@ SystemInterface::return_type SystemInterface::read(
       return return_type::ERROR;
     }
 
-    // Check if we're connected before trying to read
     if (!is_connected_.load()) {
-      // Don't spam the logs, just return error silently
-      return return_type::ERROR;
+      connection_status_ = 0.0;
+      return return_type::OK;
     }
 
     DeltoReceivedData received_data;
     try {
       received_data = delto_client_->GetData();
+      // Update connection status to indicate successful communication
+      is_connected_.store(true);
+      connection_status_ = 1.0;
     } catch (const std::exception & e) {
-      std::cerr << "Failed to read data: " << e.what() << std::endl;
+      RCLCPP_ERROR(rclcpp::get_logger("SystemInterface"), "Failed to read data: %s", e.what());
+      is_connected_.store(false);
+      connection_status_ = 0.0;
       return return_type::ERROR;
     }
 
-    // 데이터 크기 검증
-    if (received_data.joint.size() != positions_.size()) {
-      std::cerr << "Insufficient position data. Expected: " << positions_.size()
-                << ", Got: " << received_data.joint.size() << std::endl;
-      return return_type::ERROR;
+    // Simplified data assignment like dg3f_m_driver
+    if (received_data.joint.size() > 0) {
+      positions_ = received_data.joint;
+    }
+    if (received_data.velocity.size() > 0) {
+      velocities_ = received_data.velocity;  
+    }
+    if (received_data.current.size() > 0) {
+      current_ = received_data.current;
+      efforts_ = current_;
     }
 
-    if (received_data.velocity.size() != velocities_.size()) {
-      std::cerr << "Insufficient velocity data. Expected: "
-                << velocities_.size()
-                << ", Got: " << received_data.velocity.size() << std::endl;
-      return return_type::ERROR;
-    }
-
-    if (received_data.current.size() != efforts_.size()) {
-      std::cerr << "Insufficient current data. Expected: " << efforts_.size()
-                << ", Got: " << received_data.current.size() << std::endl;
-      return return_type::ERROR;
-    }
-
-    positions_ = received_data.joint;
-    velocities_ = received_data.velocity;
-    current_ = received_data.current;
-    efforts_ = current_;
-
-    // Update connection status - if we reach here, we're connected
-    is_connected_.store(true);
-    connection_status_ = 1.0;
 
     return return_type::OK;
   } catch (const std::exception & e) {
-    std::cerr << "Unexpected error in read: " << e.what() << std::endl;
-    // Update connection status on error
+    RCLCPP_ERROR(rclcpp::get_logger("SystemInterface"), "Unexpected error in read: %s", e.what());
     is_connected_.store(false);
     connection_status_ = 0.0;
     return return_type::ERROR;
@@ -315,7 +328,7 @@ SystemInterface::return_type SystemInterface::write(
   [[maybe_unused]] const rclcpp::Time & time,
   [[maybe_unused]] const rclcpp::Duration & period)
 {
-  // Check if we're connected before trying to write
+// Check if we're connected before trying to write
   if (!is_connected_.load()) {
     return return_type::ERROR;
   }
@@ -342,9 +355,9 @@ SystemInterface::return_type SystemInterface::write(
       int_duty[i] = std::clamp(int_duty[i], -1000, 1000);
     }
 
-    for (auto & i : int_duty) {
-      i *= -1;
-    }
+    // for (auto & i : int_duty) {
+    //   i *= -1;
+    // }
 
     delto_client_->SendDuty(int_duty);
     
@@ -361,10 +374,9 @@ SystemInterface::return_type SystemInterface::write(
   }
   return return_type::OK;
 }
-
-}  // namespace dg3f_m_driver
+}  // namespace dg3f_b_driver
 
 #include "pluginlib/class_list_macros.hpp"
 PLUGINLIB_EXPORT_CLASS(
-  dg3f_m_driver::SystemInterface,
+  dg3f_b_driver::SystemInterface,
   hardware_interface::SystemInterface)

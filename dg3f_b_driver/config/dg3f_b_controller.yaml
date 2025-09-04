@@ -29,10 +29,10 @@ controller_manager:
     joint_state_broadcaster:
       type: joint_state_broadcaster/JointStateBroadcaster
 
-    dg3f_m_controller:
+    dg3f_b_controller:
       type: joint_trajectory_controller/JointTrajectoryController
 
-dg3f_m_controller:
+dg3f_b_controller:
   ros__parameters:
     state_publish_rate: 500.0 # 50Hz에서 500Hz로 변경
     action_monitor_rate: 500.0 # 20Hz에서 500Hz로 변경
