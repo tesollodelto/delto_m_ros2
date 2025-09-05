@@ -87,7 +87,6 @@ ament_target_dependencies(dg3f_b_operator_test_cpp rclcpp trajectory_msgs)
 
 install(
   PROGRAMS 
-  script/dg3f_b_operator_test.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
