@@ -31,7 +31,7 @@
     <joint name="fingertip_1_joint" type="fixed">
         <parent link="l_dg_1_tip" />
         <child link="fingertip_1" />
-        <origin xyz="0 0 0" rpy="0 0 0" />
+        <origin xyz="0 0 0" rpy="0 0 3.14159" />
     </joint>
 
     <!-- Finger 2 -->
